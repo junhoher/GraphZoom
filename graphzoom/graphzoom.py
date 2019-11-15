@@ -181,7 +181,7 @@ def main():
     else:
         laplacian = json2mtx(dataset)
     
-    if args.fusion or args.embed_method == "graphsage" or args.embed_method == "dgi":    ##whether feature is needed
+    if args.fusion or args.embed_method == "graphsage" or args.embed_method == "dgi":   ## whether feature is needed
         feature = np.load(feature_path)
 
 
@@ -240,7 +240,7 @@ def main():
 
 ######Refinement######
     print("%%%%%% Starting Graph Refinement %%%%%%")
-    feat = normalize(projections[0], norm='l1', axis=1)  # @ feature
+    feat = normalize(projections[0], norm='l1', axis=1) @ feature
     refine_start = time.process_time()
     embeddings = refinement(levels, projections, coarse_laplacian, embeddings, lda, args.power, args.kpower, feat)
     refine_end = time.process_time()
