@@ -240,7 +240,7 @@ def main():
 
 ######Refinement######
     print("%%%%%% Starting Graph Refinement %%%%%%")
-    feat = normalize(projections[0], norm='l1', axis=1) @ feature
+    feat = normalize(projections[0], norm='l1', axis=1)  # @ feature
     refine_start = time.process_time()
     embeddings = refinement(levels, projections, coarse_laplacian, embeddings, lda, args.power, args.kpower, feat)
     refine_end = time.process_time()
