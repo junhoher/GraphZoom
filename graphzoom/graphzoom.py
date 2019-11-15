@@ -5,7 +5,6 @@ from scipy.sparse import csr_matrix, triu, tril, diags, identity
 from scipy.io import mmwrite, mmread
 from itertools import permutations
 from numpy import linalg as LA
-import sys
 from argparse import ArgumentParser
 from sklearn.preprocessing import normalize
 import time
@@ -15,6 +14,27 @@ from embed_methods.deepwalk.deepwalk import *
 from embed_methods.node2vec.node2vec import *
 from utils import *
 from scoring import lr
+
+
+def parse_args():
+    parser = ArgumentParser(description="GraphZoom")
+    parser.add_argument("-d", "--dataset", type=str, default="cora", help="input dataset")
+    parser.add_argument("-c", "--mcr_dir", type=str, default="/usr/local/MATLAB/MATLAB_Runtime/v94/", help="directory of matlab compiler runtime")
+    parser.add_argument("-s", "--search_ratio", type=int, default=12, help="control the search space in graph fusion process")
+    parser.add_argument("-k", "--kpower", type=int, default=2, help="control the graph filter power")
+    parser.add_argument("-r", "--reduce_ratio", type=int, default=2, help="control graph coarsening levels")
+    parser.add_argument("-n", "--num_neighs", type=int, default=10, help="control k-nearest neighbors in graph fusion process")
+    parser.add_argument("-l", "--lda", type=float, default=0.1, help="control self loop in adjacency matrix")
+    parser.add_argument("-e", "--embed_path", type=str, default="embed_results/embeddings.npy", help="path of embedding result")
+    parser.add_argument("-m", "--embed_method", type=str, default="dgi", help="[deepwalk, node2vec, graphsage, dgi]")
+    parser.add_argument("-f", "--fusion", default=False, action="store_true", help="whether use graph fusion")
+    parser.add_argument("-p", "--power", default=False, action="store_true", help="Strong power of graph filter, set True to enhance filter power")
+    parser.add_argument("-g", "--sage_model", type=str, default="mean", help="aggregation function in graphsage")
+    parser.add_argument("-w", "--sage_weighted", default=True, action="store_false", help="whether consider weighted reduced graph")
+
+    args = parser.parse_args()
+
+    return args
 
 def cosine_similarity(x, y):
     dot_xy = np.dot(x, y)
@@ -131,25 +151,9 @@ def refinement(levels, projections, coarse_laplacian, embeddings, lda, power, k,
                 embeddings = filter_ @ embeddings
     return embeddings
 
-def main():
-    parser = ArgumentParser(description="GraphZoom")
-    parser.add_argument("-d", "--dataset", type=str, default="cora", help="input dataset")
-    parser.add_argument("-c", "--mcr_dir", type=str, default="/opt/matlab/R2018A/", help="directory of matlab compiler runtime")
-    parser.add_argument("-s", "--search_ratio", type=int, default=12, help="control the search space in graph fusion process")
-    parser.add_argument("-k", "--kpower", type=int, default=2, help="control the graph filter power")
-    parser.add_argument("-r", "--reduce_ratio", type=int, default=2, help="control graph coarsening levels")
-    parser.add_argument("-n", "--num_neighs", type=int, default=2, help="control k-nearest neighbors in graph fusion process")
-    parser.add_argument("-l", "--lda", type=float, default=0.1, help="control self loop in adjacency matrix")
-    parser.add_argument("-e", "--embed_path", type=str, default="embed_results/embeddings.npy", help="path of embedding result")
-    parser.add_argument("-m", "--embed_method", type=str, default="dgi", help="[deepwalk, node2vec, graphsage, dgi]")
-    parser.add_argument("-f", "--fusion", default=False, action="store_true", help="whether use graph fusion")
-    parser.add_argument("-p", "--power", default=False, action="store_true", help="Strong power of graph filter, set True to enhance filter power")
 
-    parser.add_argument("-g", "--sage_model", type=str, default="mean", help="aggregation function in graphsage")
-    parser.add_argument("-w", "--sage_weighted", default=True, action="store_false", help="whether consider weighted reduced graph")
-
-    args = parser.parse_args()
-    
+if __name__ == "__main__":
+    args = parse_args()
     dataset = args.dataset
     mcr_dir = args.mcr_dir
     search_ratio = args.search_ratio
@@ -174,32 +178,31 @@ def main():
     else:
         input_path = "dataset/{}/{}.mtx".format(dataset, dataset)
 
-######Load Data######
+    ######Load Data######
     print("%%%%%% Loading Graph Data %%%%%%")
     if os.path.exists(fusion_input_path):
         laplacian = mmread(fusion_input_path)
     else:
         laplacian = json2mtx(dataset)
-    
-    if args.fusion or args.embed_method == "graphsage" or args.embed_method == "dgi":   ## whether feature is needed
+
+    if args.fusion or args.embed_method == "graphsage" or args.embed_method == "dgi":  ## whether feature is needed
         feature = np.load(feature_path)
 
-
-######Graph Fusion######
+    ######Graph Fusion######
     if args.fusion:
         print("%%%%%% Starting Graph Fusion %%%%%%")
         fusion_start = time.process_time()
-        laplacian = graph_fusion(laplacian, feature, num_neighs, mcr_dir, fusion_input_path, search_ratio, fusion_output_dir, mapping_path, dataset)
+        laplacian = graph_fusion(laplacian, feature, num_neighs, mcr_dir, fusion_input_path, search_ratio,
+                                 fusion_output_dir, mapping_path, dataset)
         fusion_end = time.process_time()
         fusion_time = fusion_end - fusion_start
 
-######Graph Reduction######
+    ######Graph Reduction######
     print("%%%%%% Starting Graph Reduction %%%%%%")
     os.system('./run_coarsening.sh {} {} {} n {}'.format(mcr_dir, input_path, ratio, output_dir))
     reduce_time = read_time(cputime_path)
 
-
-######Embed Reduced Graph######
+    ######Embed Reduced Graph######
     G = mtx2graph(mtx_path)
 
     print("%%%%%% Starting Graph Embedding %%%%%%")
@@ -215,17 +218,19 @@ def main():
 
     elif args.embed_method == "graphsage":
         from embed_methods.graphsage.graphsage import graphsage
+
         nx.set_node_attributes(G, False, "test")
         nx.set_node_attributes(G, False, "val")
         mapping = normalize(mtx2matrix(mapping_path), norm='l1', axis=1)
         feats = mapping @ feature
 
         embed_start = time.process_time()
-        embeddings = graphsage(G, feats, args.sage_model, args.sage_weighted, int(10000/args.reduce_ratio))
+        embeddings = graphsage(G, feats, args.sage_model, args.sage_weighted, int(10000 / args.reduce_ratio))
         embed_end = time.process_time()
-        
+
     elif args.embed_method == "dgi":
         from embed_methods.dgi.execute import dgi
+
         mapping = normalize(mtx2matrix(mapping_path), norm='l1', axis=1)
         feats = mapping @ feature
         embed_start = time.process_time()
@@ -234,11 +239,11 @@ def main():
 
     embed_time = embed_end - embed_start
 
-######Load Refinement Data######
+    ######Load Refinement Data######
     levels = read_levels(level_path)
     projections, coarse_laplacian = construct_proj_laplacian(laplacian, levels, proj_dir)
 
-######Refinement######
+    ######Refinement######
     print("%%%%%% Starting Graph Refinement %%%%%%")
     feat = normalize(projections[0], norm='l1', axis=1) @ feature
     refine_start = time.process_time()
@@ -246,15 +251,13 @@ def main():
     refine_end = time.process_time()
     refine_time = refine_end - refine_start
 
-
-######Save Embeddings######
+    ######Save Embeddings######
     np.save(save_dir, embeddings)
 
-
-######Evaluation######
+    ######Evaluation######
     lr(eval_dataset, save_dir, dataset)
 
-######Report timing information######
+    ######Report timing information######
     print("%%%%%% Single CPU time %%%%%%")
     if args.fusion:
         total_time = fusion_time + reduce_time + embed_time + refine_time
@@ -267,8 +270,4 @@ def main():
     print("Graph Embedding  Time: {}".format(embed_time))
     print("Graph Refinement Time: {}".format(refine_time))
     print("Total Time = Fusion_time + Reduction_time + Embedding_time + Refinement_time = {}".format(total_time))
-
-
-if __name__ == "__main__":
-    sys.exit(main())
 
